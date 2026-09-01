@@ -5,10 +5,13 @@ from aiogram import Bot, Dispatcher
 
 import config
 from handlers import router
+from storage.db import init_db
 
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
+
+    await init_db()
 
     bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
     dp = Dispatcher()
