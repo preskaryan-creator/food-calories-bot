@@ -1,0 +1,5 @@
+aiogram>=3.4,<4
+anthropic>=0.34
+httpx>=0.27
+python-dotenv>=1.0
+requests-oauthlib>=1.3
