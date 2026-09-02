@@ -8,6 +8,7 @@ from anthropic import AsyncAnthropic
 import config
 
 MODEL = "claude-sonnet-5"
+_TRANSLATE_MODEL = "claude-haiku-4-5-20251001"
 
 # Допустимое расхождение между заявленной калорийностью и калориями,
 # посчитанными из БЖУ (4/9/4 ккал на грамм белков/жиров/углеводов).
@@ -38,6 +39,18 @@ _REPORT_FOOD_TOOL = {
                             "type": "string",
                             "description": "Короткое конкретное название продукта на русском.",
                         },
+                        "search_name_en": {
+                            "type": "string",
+                            "description": (
+                                "Базовое название продукта на английском, МАКСИМУМ 2-3 слова, "
+                                "как в продуктовой базе данных (например, 'chicken drumstick', "
+                                "'pork ribs', 'barbecue sauce') — используется для поиска в "
+                                "англоязычной базе продуктов FatSecret. НЕ включай способ "
+                                "приготовления, состояние или уточнения ('raw', 'grilled', "
+                                "'with spices', 'in sauce' и т.п.) — они портят поиск, база "
+                                "ищет по первому слову буквально."
+                            ),
+                        },
                         "portion_grams": {
                             "type": "number",
                             "description": "Оценённый вес порции этого продукта, граммы.",
@@ -47,7 +60,15 @@ _REPORT_FOOD_TOOL = {
                         "fat": {"type": "number", "description": "Жиры, г."},
                         "carbs": {"type": "number", "description": "Углеводы, г."},
                     },
-                    "required": ["name", "portion_grams", "calories", "protein", "fat", "carbs"],
+                    "required": [
+                        "name",
+                        "search_name_en",
+                        "portion_grams",
+                        "calories",
+                        "protein",
+                        "fat",
+                        "carbs",
+                    ],
                 },
             },
         },
@@ -55,19 +76,40 @@ _REPORT_FOOD_TOOL = {
     },
 }
 
+_TRANSLATE_TOOL = {
+    "name": "report_translations",
+    "description": "Вернуть переводы списка коротких названий продуктов на русский.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "translations": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Переводы на русский, короткие, в том же порядке и количестве, "
+                    "что и исходный список."
+                ),
+            },
+        },
+        "required": ["translations"],
+    },
+}
+
 _SYSTEM_PROMPT = (
     "Ты — эксперт по питанию. По фотографии еды определи каждый значимый продукт "
     "или компонент отдельно (например, гарнир, мясо/рыбу, соус, салат — каждый своим "
     "элементом), а не одно обобщённое название блюда целиком. Для каждого компонента "
-    "оцени размер порции в граммах и рассчитай количество калорий, белков, жиров "
-    "и углеводов. Давай наилучшую оценку, даже если не уверен на 100%. Ответь "
-    "вызовом инструмента report_food."
+    "дай название на русском и короткое обобщённое название на английском (для поиска "
+    "в англоязычной базе продуктов), оцени размер порции в граммах и рассчитай "
+    "количество калорий, белков, жиров и углеводов. Давай наилучшую оценку, даже если "
+    "не уверен на 100%. Ответь вызовом инструмента report_food."
 )
 
 
 @dataclass
 class FoodItem:
     name: str
+    search_name_en: str
     portion_grams: float
     calories: float
     protein: float
@@ -147,3 +189,26 @@ async def recognize_food(image_bytes: bytes, media_type: str = "image/jpeg") -> 
         warnings.extend(_validate_item(item))
 
     return FoodRecognitionResult(items=items, warnings=warnings)
+
+
+async def translate_to_russian(texts: list[str]) -> list[str]:
+    """Переводит короткие английские названия продуктов (из FatSecret) на русский для показа пользователю."""
+    if not texts:
+        return []
+
+    numbered = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(texts))
+    response = await _client.messages.create(
+        model=_TRANSLATE_MODEL,
+        max_tokens=512,
+        tools=[_TRANSLATE_TOOL],
+        tool_choice={"type": "tool", "name": "report_translations"},
+        messages=[
+            {
+                "role": "user",
+                "content": f"Переведи каждое название продукта на русский, коротко:\n{numbered}",
+            }
+        ],
+    )
+
+    tool_use = next(block for block in response.content if block.type == "tool_use")
+    return tool_use.input["translations"]

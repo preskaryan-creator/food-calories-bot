@@ -9,5 +9,7 @@ router = Router()
 async def handle_start(message: Message) -> None:
     await message.answer(
         "Привет! Отправь фото еды, и я оценю КБЖУ и запишу в дневник питания.\n\n"
-        "Перед этим привяжи свой аккаунт FatSecret командой /link_fatsecret."
+        "Перед этим привяжи свой аккаунт FatSecret командой /link_fatsecret.\n\n"
+        '<a href="https://platform.fatsecret.com">Powered by fatsecret Platform API</a>',
+        parse_mode="HTML",
     )

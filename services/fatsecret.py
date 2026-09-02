@@ -36,10 +36,22 @@ class FatSecretServing:
     description: str
     metric_amount: float | None
     metric_unit: str | None
+    measurement_description: str | None
+    # Калории/БЖУ ниже даны на reference_units штук этой порции (FatSecret иногда
+    # возвращает это число не равным 1 — например, для порции "100 g" reference_units=100,
+    # т.е. calories это калорийность за 100 г, а не за 1 г). Число, которое реально
+    # нужно слать в food_entry.create как number_of_units, всегда пересчитывается
+    # через это поле — умножение "в лоб" на calories без учёта reference_units даёт
+    # результат, завышенный/заниженный в reference_units раз.
+    reference_units: float
     calories: float
     protein: float
     fat: float
     carbs: float
+
+    @property
+    def calories_per_unit(self) -> float:
+        return self.calories / self.reference_units
 
 
 @dataclass
@@ -105,6 +117,8 @@ async def get_food_servings(food_id: str) -> list[FatSecretServing]:
                 description=raw.get("serving_description", ""),
                 metric_amount=float(metric_amount) if metric_amount is not None else None,
                 metric_unit=metric_unit,
+                measurement_description=raw.get("measurement_description"),
+                reference_units=float(raw.get("number_of_units", 1)),
                 calories=float(raw["calories"]),
                 protein=float(raw["protein"]),
                 fat=float(raw["fat"]),
@@ -117,20 +131,27 @@ async def get_food_servings(food_id: str) -> list[FatSecretServing]:
 def pick_serving_for_grams(servings: list[FatSecretServing], target_grams: float) -> ServingChoice:
     """Подбирает порцию, ближайшую по граммовке к оценённому весу компонента.
 
-    Предпочитает порции, заданные в граммах (metric_unit == "g") — тогда количество
-    порций масштабируется точно под target_grams. Если таких нет, берёт первую
-    доступную порцию с number_of_units=1 и помечает matched_by_grams=False, чтобы
-    вызывающий код мог предупредить пользователя о возможной неточности.
+    Среди порций, конвертируемых в граммы (metric_unit == "g"), в первую очередь
+    ищет порцию, буквально измеряемую в граммах (measurement_description == "g",
+    например "100 g") — тогда дневник FatSecret покажет запись в граммах, а не в
+    "4 oz" / "1 cup" и т.п. Если такой нет — берёт любую гram-конвертируемую порцию
+    (запись в дневнике будет в её родных единицах, но количество останется точным).
+    Если гram-конвертируемых порций нет вовсе, берёт первую доступную порцию как есть
+    (number_of_units=serving.reference_units, т.е. "1 натуральная порция") и
+    помечает matched_by_grams=False, чтобы вызывающий код мог предупредить
+    пользователя о возможной неточности.
     """
     gram_servings = [s for s in servings if s.metric_unit == "g" and s.metric_amount]
+    native_gram_servings = [s for s in gram_servings if (s.measurement_description or "").strip().lower() == "g"]
 
-    if gram_servings:
-        serving = min(gram_servings, key=lambda s: abs(s.metric_amount - target_grams))
-        number_of_units = target_grams / serving.metric_amount
+    if native_gram_servings or gram_servings:
+        candidates = native_gram_servings or gram_servings
+        serving = min(candidates, key=lambda s: abs(s.metric_amount - target_grams))
+        number_of_units = (target_grams / serving.metric_amount) * serving.reference_units
         return ServingChoice(serving=serving, number_of_units=number_of_units, matched_by_grams=True)
 
     serving = servings[0]
-    return ServingChoice(serving=serving, number_of_units=1.0, matched_by_grams=False)
+    return ServingChoice(serving=serving, number_of_units=serving.reference_units, matched_by_grams=False)
 
 
 async def add_food_entry(
