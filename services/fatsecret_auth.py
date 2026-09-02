@@ -13,6 +13,7 @@ import asyncio
 import time
 
 import httpx
+from oauthlib.oauth1 import SIGNATURE_TYPE_BODY
 from requests_oauthlib import OAuth1Session
 
 import config
@@ -54,6 +55,9 @@ def _oauth1_session(
     resource_owner_secret: str | None = None,
     callback_uri: str | None = None,
 ) -> OAuth1Session:
+    # FatSecret ждёт OAuth-параметры в теле POST-запроса, а не в заголовке
+    # Authorization (дефолт requests_oauthlib) — иначе отвечает 400 "Missing
+    # required parameter: oauth_consumer_key".
     return OAuth1Session(
         client_key=config.FATSECRET_CONSUMER_KEY,
         client_secret=config.FATSECRET_CONSUMER_SECRET,
@@ -61,6 +65,7 @@ def _oauth1_session(
         resource_owner_secret=resource_owner_secret,
         callback_uri=callback_uri,
         signature_method="HMAC-SHA1",
+        signature_type=SIGNATURE_TYPE_BODY,
     )
 
 

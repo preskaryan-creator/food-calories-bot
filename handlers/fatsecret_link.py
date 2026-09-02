@@ -18,7 +18,11 @@ class FatSecretLink(StatesGroup):
 
 @router.message(Command("link_fatsecret"))
 async def start_link(message: Message, state: FSMContext) -> None:
-    authorize_url, oauth_token, oauth_token_secret = await fatsecret_auth.start_account_link()
+    try:
+        authorize_url, oauth_token, oauth_token_secret = await fatsecret_auth.start_account_link()
+    except Exception:
+        await message.answer("Не удалось начать привязку аккаунта FatSecret, попробуйте позже.")
+        return
 
     await state.set_state(FatSecretLink.waiting_for_pin)
     await state.update_data(oauth_token=oauth_token, oauth_token_secret=oauth_token_secret)
