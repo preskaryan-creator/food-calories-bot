@@ -154,6 +154,20 @@ def pick_serving_for_grams(servings: list[FatSecretServing], target_grams: float
     return ServingChoice(serving=serving, number_of_units=serving.reference_units, matched_by_grams=False)
 
 
+def calories_per_100g(servings: list[FatSecretServing]) -> float | None:
+    """Нормализует калорийность к 100 г по первой gram-конвертируемой порции.
+
+    Результат не зависит от того, какая именно gram-конвертируемая порция взята
+    для расчёта — деление calories/metric_amount убирает reference_units (та же
+    логика, что и в pick_serving_for_grams). None, если у продукта вообще нет
+    порции в граммах.
+    """
+    for serving in servings:
+        if serving.metric_unit == "g" and serving.metric_amount:
+            return (serving.calories / serving.metric_amount) * 100
+    return None
+
+
 async def add_food_entry(
     telegram_id: int,
     food_id: str,

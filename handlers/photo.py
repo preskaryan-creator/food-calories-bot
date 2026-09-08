@@ -1,5 +1,6 @@
 """Обработка фото еды: распознавание -> подтверждение матчинга с FatSecret -> запись в дневник."""
 
+import asyncio
 import dataclasses
 
 from aiogram import F, Router
@@ -92,11 +93,22 @@ async def _advance(message: Message, state: FSMContext) -> None:
     if len(translations) != len(candidates):
         translations = [c.food_name for c in candidates]
 
+    servings_per_candidate = await asyncio.gather(
+        *(fatsecret.get_food_servings(c.food_id) for c in candidates), return_exceptions=True
+    )
+    per_100g = [
+        fatsecret.calories_per_100g(servings) if not isinstance(servings, Exception) else None
+        for servings in servings_per_candidate
+    ]
+
     builder = InlineKeyboardBuilder()
-    for candidate, label in zip(candidates, translations):
+    for candidate, label, cal100 in zip(candidates, translations, per_100g):
         if candidate.brand_name:
             label = f"{label} ({candidate.brand_name})"
-        builder.button(text=label[:60], callback_data=f"fsmatch:{candidate.food_id}")
+        label = label[:40]
+        if cal100 is not None:
+            label = f"{label} — {cal100:.0f} ккал/100г"
+        builder.button(text=label, callback_data=f"fsmatch:{candidate.food_id}")
     builder.button(text="Пропустить", callback_data="fsmatch:skip")
     builder.adjust(1)
 
